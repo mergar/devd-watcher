@@ -1,0 +1,5 @@
+#!/bin/sh
+echo "${1}" >> /tmp/attach.log
+echo "SLEEP 60" >> /tmp/attach.log
+sleep 60
+
