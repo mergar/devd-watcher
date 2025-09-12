@@ -64,9 +64,13 @@ int demi_read(int fd, struct demi_event *de)
 	//!system=GEOM subsystem=DEV type=CREATE cdev=md0
 
 	// skipp all except system=DEVFS 
-	if (strcmp(key, "DEVFS") == 0) {
-		if (strcmp(value, "DEVFS") != 0) {
-			continue;
+	if (strcmp(key, "system") == 0) {
+//		printf("S:[system], value:[%s]\n",value);
+		if (strcmp(value, "DEVFS") != 0 ) {
+			char log_msg[512];
+			snprintf(log_msg, sizeof(log_msg), "devd event: system=%s SKIP by exception (DEVFS only)", value);
+			demi_log(log_msg);
+			return 0;
 		}
 	}
 
@@ -101,18 +105,18 @@ int demi_read(int fd, struct demi_event *de)
             case DEMI_CHANGE: action_str = "HOTPLUG"; break;
             default: break;
         }
-        
+
         char log_msg[512];
         snprintf(log_msg, sizeof(log_msg), "devd event: device=%s action=%s", 
                  de->de_devname, action_str);
         demi_log(log_msg);
-        
+
         // Filter devices based on DEMI_ALLOWED_DEVICES
         int allowed = demi_is_device_allowed(de->de_devname);
         snprintf(log_msg, sizeof(log_msg), "device filter: device=%s allowed=%s", 
                  de->de_devname, allowed ? "yes" : "no");
         demi_log(log_msg);
-        
+
         if (!allowed) {
             // Clear the device name to indicate this event should be ignored
             de->de_devname[0] = '\0';
