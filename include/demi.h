@@ -1,6 +1,8 @@
 #ifndef _DEMI_H_
 #define _DEMI_H_
 
+//usr/include/sys/param.h:#define SPECNAMELEN    255             /* max length of devicename */
+
 /* Public limit for device name length */
 #ifndef DEMI_DEVNAME_MAX
 #define DEMI_DEVNAME_MAX (255 + 1)

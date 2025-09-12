@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 
 #include "demi.h"
+#include "demi_internal.h"
 
 // https://freebsd.org/cgi/man.cgi?query=devctl&sektion=4
 int demi_read(int fd, struct demi_event *de)
