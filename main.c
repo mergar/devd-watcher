@@ -66,6 +66,16 @@ static int acquire_lock_with_timeout(const char *lock_path, int timeout_seconds,
     time_t start = time(NULL);
     for (;;) {
         if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+            /* On successful lock, record timestamp and owner into the lock file */
+            (void)lseek(fd, 0, SEEK_SET);
+            (void)ftruncate(fd, 0);
+            time_t now = time(NULL);
+            char lock_note[64];
+            int note_len = snprintf(lock_note, sizeof(lock_note), "%ld:devd-watcher\n", (long)now);
+            if (note_len > 0) {
+                ssize_t ignored = write(fd, lock_note, (size_t)note_len);
+                (void)ignored;
+            }
             if (out_fd) {
                 *out_fd = fd;
             }
@@ -119,6 +129,11 @@ static void *run_helper(void *arg)
     (void)rc;
 
     release_lock(lock_fd);
+    if (unlink(lock_path) == -1) {
+        if (errno != ENOENT) {
+            fprintf(stderr, "failed to remove lock file '%s': %s\n", lock_path, strerror(errno));
+        }
+    }
     free(ha->command);
     free(ha);
     return NULL;
