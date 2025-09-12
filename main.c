@@ -11,6 +11,12 @@
 #include <time.h>
 #include <sys/file.h>
 
+#ifndef DEMI_PLATFORM_FREEBSD
+#ifdef __FreeBSD__
+#define DEMI_PLATFORM_FREEBSD 1
+#endif
+#endif
+
 #ifndef DEMI_LOCK_TIMEOUT_SECONDS
 #define DEMI_LOCK_TIMEOUT_SECONDS 5
 #endif
@@ -20,10 +26,17 @@ struct helper_args {
     char dev_basename[256];
 };
 
-static int ensure_run_directory(void)
+/* Select lock directory per-platform */
+#if defined(DEMI_PLATFORM_FREEBSD) || defined(MI_PLATFORM_FREEBSD)
+#define DEMI_LOCK_DIR "/var/run/devd-watcher"
+#else
+#define DEMI_LOCK_DIR "run"
+#endif
+
+static int ensure_lock_directory(const char *dir_path)
 {
     struct stat st;
-    if (stat("run", &st) == 0) {
+    if (stat(dir_path, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
             return 0;
         }
@@ -32,12 +45,16 @@ static int ensure_run_directory(void)
     if (errno != ENOENT) {
         return -1;
     }
-    return mkdir("run", 0755);
+    return mkdir(dir_path, 0755);
 }
 
 static int acquire_lock_with_timeout(const char *lock_path, int timeout_seconds, int *out_fd)
 {
-    int fd = open(lock_path, O_CREAT | O_RDWR, 0644);
+    int open_flags = O_CREAT | O_RDWR;
+#ifdef O_CLOEXEC
+    open_flags |= O_CLOEXEC;
+#endif
+    int fd = open(lock_path, open_flags, 0644);
     if (fd == -1) {
         return -1;
     }
@@ -76,19 +93,23 @@ static void release_lock(int fd)
 static void *run_helper(void *arg)
 {
     struct helper_args *ha = (struct helper_args *)arg;
-    if (ensure_run_directory() == -1) {
-        fprintf(stderr, "failed to ensure run/ directory: %s\n", strerror(errno));
+    if (ensure_lock_directory(DEMI_LOCK_DIR) == -1) {
+        fprintf(stderr, "failed to ensure lock directory '%s': %s\n", DEMI_LOCK_DIR, strerror(errno));
         free(ha->command);
         free(ha);
         return NULL;
     }
 
     char lock_path[512];
-    snprintf(lock_path, sizeof(lock_path), "run/%s.lock", ha->dev_basename);
+    snprintf(lock_path, sizeof(lock_path), "%s/%s.lock", DEMI_LOCK_DIR, ha->dev_basename);
 
     int lock_fd = -1;
     if (acquire_lock_with_timeout(lock_path, DEMI_LOCK_TIMEOUT_SECONDS, &lock_fd) == -1) {
-        fprintf(stderr, "lock busy for %s after %d seconds, skipping\n", ha->dev_basename, (int)DEMI_LOCK_TIMEOUT_SECONDS);
+        if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            fprintf(stderr, "lock busy for %s after %d seconds (path: %s), skipping\n", ha->dev_basename, (int)DEMI_LOCK_TIMEOUT_SECONDS, lock_path);
+        } else {
+            fprintf(stderr, "failed to acquire lock for %s (path: %s): %s\n", ha->dev_basename, lock_path, strerror(errno));
+        }
         free(ha->command);
         free(ha);
         return NULL;
