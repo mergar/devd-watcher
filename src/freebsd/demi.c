@@ -59,6 +59,16 @@ int demi_read(int fd, struct demi_event *de)
             continue;
         }
 
+	//!system=DEVFS subsystem=CDEV type=CREATE cdev=md0
+	//!system=GEOM subsystem=DEV type=CREATE cdev=md0
+
+	// skipp all except system=DEVFS 
+	if (strcmp(key, "DEVFS") == 0) {
+		if (strcmp(value, "DEVFS") != 0) {
+			continue;
+		}
+	}
+
         if (strcmp(key, "cdev") == 0) {
             value_len = sizeof(de->de_devname);
             assert(strlcpy(de->de_devname, value, value_len) < value_len);
