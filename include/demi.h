@@ -25,4 +25,8 @@ struct demi_event {
 int demi_init(int flags);
 int demi_read(int fd, struct demi_event *event);
 
+/* Device filtering functions */
+int demi_is_device_allowed(const char *devname);
+void demi_set_allowed_devices(const char *allowed_devices);
+
 #endif

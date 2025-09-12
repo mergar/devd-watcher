@@ -80,6 +80,12 @@ int demi_read(int fd, struct demi_event *de)
         }
     }
 
+    // Filter devices based on DEMI_ALLOWED_DEVICES
+    if (de->de_devname[0] != '\0' && !demi_is_device_allowed(de->de_devname)) {
+        // Clear the device name to indicate this event should be ignored
+        de->de_devname[0] = '\0';
+    }
+
     return 0;
 }
 

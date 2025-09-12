@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <sys/file.h>
+#include <getopt.h>
 
 #ifndef DEMI_PLATFORM_FREEBSD
 #ifdef __FreeBSD__
@@ -25,6 +26,92 @@ struct helper_args {
     char *command;
     char dev_basename[256];
 };
+
+struct config {
+    char *lock_dir;
+    int lock_timeout_seconds;
+    char *allowed_devices;
+};
+
+static struct config g_config = {
+    .lock_dir = NULL,
+    .lock_timeout_seconds = DEMI_LOCK_TIMEOUT_SECONDS,
+    .allowed_devices = NULL
+};
+
+static void trim_whitespace(char *str) {
+    char *end = str + strlen(str) - 1;
+    while (end > str && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
+        *end = '\0';
+        end--;
+    }
+    char *start = str;
+    while (*start == ' ' || *start == '\t') {
+        start++;
+    }
+    if (start != str) {
+        memmove(str, start, strlen(start) + 1);
+    }
+}
+
+static int parse_config_file(const char *config_path) {
+    FILE *file = fopen(config_path, "r");
+    if (!file) {
+        return -1;
+    }
+
+    char line[512];
+    while (fgets(line, sizeof(line), file)) {
+        // Skip comments and empty lines
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') {
+            continue;
+        }
+
+        // Find the '=' character
+        char *equals = strchr(line, '=');
+        if (!equals) {
+            continue;
+        }
+
+        // Split the line into key and value
+        *equals = '\0';
+        char *key = line;
+        char *value = equals + 1;
+
+        // Trim whitespace
+        trim_whitespace(key);
+        trim_whitespace(value);
+
+        // Remove quotes if present
+        if (value[0] == '"' && value[strlen(value) - 1] == '"') {
+            value[strlen(value) - 1] = '\0';
+            value++;
+        }
+
+        // Parse configuration parameters
+        if (strcmp(key, "DEMI_LOCK_DIR") == 0) {
+            free(g_config.lock_dir);
+            g_config.lock_dir = strdup(value);
+        } else if (strcmp(key, "DEMI_LOCK_TIMEOUT_SECONDS") == 0) {
+            g_config.lock_timeout_seconds = atoi(value);
+            if (g_config.lock_timeout_seconds <= 0) {
+                g_config.lock_timeout_seconds = DEMI_LOCK_TIMEOUT_SECONDS;
+            }
+        } else if (strcmp(key, "DEMI_ALLOWED_DEVICES") == 0) {
+            free(g_config.allowed_devices);
+            g_config.allowed_devices = strdup(value);
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
+
+static void cleanup_config(void) {
+    free(g_config.lock_dir);
+    free(g_config.allowed_devices);
+}
+
 
 /* Select lock directory per-platform */
 #if defined(DEMI_PLATFORM_FREEBSD) || defined(MI_PLATFORM_FREEBSD)
@@ -103,20 +190,24 @@ static void release_lock(int fd)
 static void *run_helper(void *arg)
 {
     struct helper_args *ha = (struct helper_args *)arg;
-    if (ensure_lock_directory(DEMI_LOCK_DIR) == -1) {
-        fprintf(stderr, "failed to ensure lock directory '%s': %s\n", DEMI_LOCK_DIR, strerror(errno));
+    
+    // Use configured lock directory or default
+    const char *lock_dir = g_config.lock_dir ? g_config.lock_dir : DEMI_LOCK_DIR;
+    
+    if (ensure_lock_directory(lock_dir) == -1) {
+        fprintf(stderr, "failed to ensure lock directory '%s': %s\n", lock_dir, strerror(errno));
         free(ha->command);
         free(ha);
         return NULL;
     }
 
     char lock_path[512];
-    snprintf(lock_path, sizeof(lock_path), "%s/%s.lock", DEMI_LOCK_DIR, ha->dev_basename);
+    snprintf(lock_path, sizeof(lock_path), "%s/%s.lock", lock_dir, ha->dev_basename);
 
     int lock_fd = -1;
-    if (acquire_lock_with_timeout(lock_path, DEMI_LOCK_TIMEOUT_SECONDS, &lock_fd) == -1) {
+    if (acquire_lock_with_timeout(lock_path, g_config.lock_timeout_seconds, &lock_fd) == -1) {
         if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            fprintf(stderr, "lock busy for %s after %d seconds (path: %s), skipping\n", ha->dev_basename, (int)DEMI_LOCK_TIMEOUT_SECONDS, lock_path);
+            fprintf(stderr, "lock busy for %s after %d seconds (path: %s), skipping\n", ha->dev_basename, g_config.lock_timeout_seconds, lock_path);
         } else {
             fprintf(stderr, "failed to acquire lock for %s (path: %s): %s\n", ha->dev_basename, lock_path, strerror(errno));
         }
@@ -139,8 +230,46 @@ static void *run_helper(void *arg)
     return NULL;
 }
 
-int main(void)
+static void print_usage(const char *progname) {
+    fprintf(stderr, "Usage: %s [-c config_file]\n", progname);
+    fprintf(stderr, "  -c config_file  Configuration file path (default: etc/devd-watcher.conf)\n");
+    fprintf(stderr, "  -h              Show this help message\n");
+}
+
+int main(int argc, char *argv[])
 {
+    const char *config_file = "etc/devd-watcher.conf";
+    int opt;
+
+    // Parse command line arguments
+    while ((opt = getopt(argc, argv, "c:h")) != -1) {
+        switch (opt) {
+            case 'c':
+                config_file = optarg;
+                break;
+            case 'h':
+                print_usage(argv[0]);
+                return EXIT_SUCCESS;
+            default:
+                print_usage(argv[0]);
+                return EXIT_FAILURE;
+        }
+    }
+
+    // Parse configuration file
+    if (parse_config_file(config_file) == -1) {
+        fprintf(stderr, "Warning: Could not read config file '%s': %s\n", config_file, strerror(errno));
+        fprintf(stderr, "Using default configuration\n");
+    }
+
+    // Set device filter in demi library
+    if (g_config.allowed_devices) {
+        demi_set_allowed_devices(g_config.allowed_devices);
+    }
+
+    // Register cleanup function
+    atexit(cleanup_config);
+
     // Initialize demi file descriptor with no/zero flags.
     // Optionally, DEMI_CLOEXEC and DEMI_NONBLOCK can be bitwise ORed in flags
     // to atomically set close-on-exec flag and nonblocking mode respectively.
@@ -168,6 +297,7 @@ int main(void)
         if (de.de_devname[0] == '\0') {
             continue;
         }
+
 
         // Prepend /dev/ to devname, so that we have full path to devnode.
         char devnode[sizeof(de.de_devname) + sizeof("/dev/")];
