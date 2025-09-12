@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <linux/netlink.h>
+#include <stdarg.h>
 
 #include "demi.h"
 #include "demi_internal.h"
@@ -80,10 +81,31 @@ int demi_read(int fd, struct demi_event *de)
         }
     }
 
-    // Filter devices based on DEMI_ALLOWED_DEVICES
-    if (de->de_devname[0] != '\0' && !demi_is_device_allowed(de->de_devname)) {
-        // Clear the device name to indicate this event should be ignored
-        de->de_devname[0] = '\0';
+    // Log netlink event if device name is present
+    if (de->de_devname[0] != '\0') {
+        const char *action_str = "unknown";
+        switch (de->de_type) {
+            case DEMI_ATTACH: action_str = "add"; break;
+            case DEMI_DETACH: action_str = "remove"; break;
+            case DEMI_CHANGE: action_str = "change"; break;
+            default: break;
+        }
+        
+        char log_msg[512];
+        snprintf(log_msg, sizeof(log_msg), "netlink event: device=%s action=%s", 
+                 de->de_devname, action_str);
+        demi_log(log_msg);
+        
+        // Filter devices based on DEMI_ALLOWED_DEVICES
+        int allowed = demi_is_device_allowed(de->de_devname);
+        snprintf(log_msg, sizeof(log_msg), "device filter: device=%s allowed=%s", 
+                 de->de_devname, allowed ? "yes" : "no");
+        demi_log(log_msg);
+        
+        if (!allowed) {
+            // Clear the device name to indicate this event should be ignored
+            de->de_devname[0] = '\0';
+        }
     }
 
     return 0;

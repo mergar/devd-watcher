@@ -11,6 +11,7 @@
 #include <time.h>
 #include <sys/file.h>
 #include <getopt.h>
+#include <syslog.h>
 
 #ifndef DEMI_PLATFORM_FREEBSD
 #ifdef __FreeBSD__
@@ -31,12 +32,14 @@ struct config {
     char *lock_dir;
     int lock_timeout_seconds;
     char *allowed_devices;
+    char *log_file;
 };
 
 static struct config g_config = {
     .lock_dir = NULL,
     .lock_timeout_seconds = DEMI_LOCK_TIMEOUT_SECONDS,
-    .allowed_devices = NULL
+    .allowed_devices = NULL,
+    .log_file = NULL
 };
 
 static void trim_whitespace(char *str) {
@@ -100,6 +103,9 @@ static int parse_config_file(const char *config_path) {
         } else if (strcmp(key, "DEMI_ALLOWED_DEVICES") == 0) {
             free(g_config.allowed_devices);
             g_config.allowed_devices = strdup(value);
+        } else if (strcmp(key, "DEMI_LOG_FILE") == 0) {
+            free(g_config.log_file);
+            g_config.log_file = strdup(value);
         }
     }
 
@@ -110,8 +116,31 @@ static int parse_config_file(const char *config_path) {
 static void cleanup_config(void) {
     free(g_config.lock_dir);
     free(g_config.allowed_devices);
+    free(g_config.log_file);
 }
 
+void demi_log(const char *message) {
+    if (!g_config.log_file) {
+        return; // No logging configured
+    }
+
+    FILE *log_fp = fopen(g_config.log_file, "a");
+    if (!log_fp) {
+        return; // Cannot open log file
+    }
+
+    // Get current time
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    
+    // Format time in syslog format: Sep 12 21:10:36
+    char time_str[32];
+    strftime(time_str, sizeof(time_str), "%b %d %H:%M:%S", tm_info);
+    
+    // Write log entry in syslog format: Sep 12 21:10:36 devd-watcher: message
+    fprintf(log_fp, "%s devd-watcher: %s\n", time_str, message);
+    fclose(log_fp);
+}
 
 /* Select lock directory per-platform */
 #if defined(DEMI_PLATFORM_FREEBSD) || defined(MI_PLATFORM_FREEBSD)

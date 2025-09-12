@@ -29,4 +29,7 @@ int demi_read(int fd, struct demi_event *event);
 int demi_is_device_allowed(const char *devname);
 void demi_set_allowed_devices(const char *allowed_devices);
 
+/* Logging function */
+void demi_log(const char *message);
+
 #endif
