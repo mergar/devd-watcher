@@ -1,2 +1,3 @@
 #!/bin/sh
+export SHINST_DSK_EXCLUDE="cd* md*"
 echo "${1}" >> /tmp/change.log

@@ -1,0 +1,1 @@
+devctl detach vtblk1

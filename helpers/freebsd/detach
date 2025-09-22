@@ -1,3 +1,4 @@
 #!/bin/sh
+export SHINST_DSK_EXCLUDE="cd* md*"
 /root/shinst/dsklist/query -u
 echo "${1}" >> /tmp/detach.log
