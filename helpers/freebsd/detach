@@ -1,4 +1,16 @@
 #!/bin/sh
-export SHINST_DSK_EXCLUDE="cd* md*"
+dev="${1##*/}"
+echo "${dev}" >> /tmp/detach.log
+RPATH=$( realpath ${DSKMAP_DIR}/dsk/${dev} )
+
+rm -f ${PATH} ${DSKMAP_DIR}/dsk/${dev} \
+	${DSKMAP_DIR}/dsk/${dev}.extra \
+	${DSKMAP_DIR}/dsk/${dev}.ident \
+	${DSKMAP_DIR}/dsk/${dev}.model \
+	${DSKMAP_DIR}/dsk/${dev}.parent \
+	${DSKMAP_DIR}/dsk/${dev}.parent_desc \
+	${DSKMAP_DIR}/dsk/${dev}.size \
+	${DSKMAP_DIR}/dsk/${dev}.size_bytes \
+	${DSKMAP_DIR}/dsk/${dev}.type
+
 /root/shinst/dsklist/query -u
-echo "${1}" >> /tmp/detach.log

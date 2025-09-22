@@ -1,3 +1,4 @@
 #!/bin/sh
+dev="${1##*/}"
 export SHINST_DSK_EXCLUDE="cd* md*"
-echo "${1}" >> /tmp/change.log
+echo "${dev}" >> /tmp/change.log
